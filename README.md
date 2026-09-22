@@ -217,7 +217,7 @@ MongoDB and Redis do not need to be installed locally. Docker Compose handles th
 ### Start everything
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/vishal316156/gatecache
 cd gatecache
 docker compose up --build
 ```
