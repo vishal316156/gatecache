@@ -1,174 +1,133 @@
 # GateCache
 
-A high-performance API gateway and caching engine built with Node.js, Express, MongoDB, and Redis.
+GateCache is a backend-focused API gateway and caching project built with Node.js, Express, MongoDB, and Redis.
 
-GateCache is designed to sit between clients and backend services and handle common backend infrastructure responsibilities such as request routing, caching, rate limiting, health checking, retries, load balancing, and metrics.
+I built it to get a better understanding of the infrastructure that usually sits between a client and backend services. Instead of implementing each concept separately, the project puts routing, caching, rate limiting, health checks, retries, load balancing, and metrics into one system.
 
-The project was built to understand how these components work together in a real backend system rather than treating them as isolated concepts.
+## What it includes
 
-## Features
-
-- Multi-level caching
-  - L1 in-memory LRU cache
-  - L2 Redis cache
-  - L2-to-L1 cache promotion
-  - TTL-based expiration
-  - Cache statistics
-- Request routing using MongoDB-based route configuration
+- L1 in-memory LRU cache
+- L2 Redis cache
+- Cache promotion from Redis back into L1
+- TTL-based cache expiration
+- Cache hit, miss, eviction, and hit-ratio statistics
+- MongoDB-based route configuration
 - Round-robin load balancing
 - Backend health checks
-- Request timeout handling
-- Retry mechanism with unhealthy-target removal
+- Request timeouts
+- Retry handling
 - Token bucket rate limiting
-- Request and backend metrics
+- Fixed-window and sliding-window rate limiting implementations
+- Backend and request metrics
 - Structured logging with Pino
-- Automated backend route seeding
-- Dockerized development and testing environment
-- Unit tests with Vitest
+- Automatic MongoDB route seeding
+- Docker Compose setup
+- Unit and integration tests with Vitest
 - HTTP load testing with Autocannon
 
-## Architecture
+## How it works
+
+A request first reaches the GateCache gateway.
+
+For GET requests, the gateway checks the local L1 cache first. If the data is not there, it checks Redis. A Redis hit is copied back into L1 so that future requests can be served from memory.
+
+If neither cache contains the response, GateCache looks up the route in MongoDB and sends the request to one of the healthy backend instances.
+
+Non-GET requests are forwarded to the backend without using the response cache.
+
+The main request path is:
 
 ```text
-                         Client
-                           |
-                           v
-                    +--------------+
-                    |   GateCache  |
-                    | API Gateway  |
-                    +------+-------+
-                           |
-              +------------+------------+
-              |            |            |
-              v            v            v
-          Rate Limit    Cache       Routing
-                           |
-                    +------+------+
-                    |             |
-                    v             v
-               L1 LRU Cache   L2 Redis
-                    |             |
-                    |         Redis HIT
-                    |             |
-                    +------+------+
-                           |
-                       Cache MISS
-                           |
-                           v
-                  Load Balancer
-                           |
-             +-------------+-------------+
-             |             |             |
-             v             v             v
-          Backend 1     Backend 2     Backend 3
-            :4001         :4002         :4003
+Client
+  |
+  GateCache
+  |
+  +-- Rate limiter
+  |
+  +-- L1 cache
+  |     |
+  |     +-- Hit: return response
+  |     |
+  |     +-- Miss: check Redis
+  |
+  +-- Redis
+  |     |
+  |     +-- Hit: store in L1 and return response
+  |     |
+  |     +-- Miss: find backend route
+  |
+  +-- Load balancer
+        |
+        +-- Backend 1
+        +-- Backend 2
+        +-- Backend 3
 ```
-
-For a GET request, GateCache first checks the L1 in-memory cache. On an L1 miss, it checks Redis. If Redis contains the response, it promotes that response back into L1.
-
-If both cache layers miss, the request is routed to a healthy backend.
-
-## Request Flow
-
-```text
-GET /gateway/users/101
-          |
-          v
-     Rate Limiter
-          |
-          v
-       L1 Cache
-       /      \
-     HIT      MISS
-      |         |
-      v         v
-   Response   Redis
-                |
-             +--+--+
-            HIT   MISS
-             |      |
-             v      v
-          L1 +    Backend
-          Response
-```
-
-Non-GET requests bypass the cache and are forwarded directly to the appropriate backend.
 
 ## Caching
 
 GateCache uses two cache levels.
 
-### L1: In-memory LRU
+### L1: In-memory LRU cache
 
-The L1 cache uses a hash map combined with a doubly linked list to provide:
+The L1 cache is implemented using a hash map and a doubly linked list.
+
+This gives:
 
 - O(1) lookup
 - O(1) insertion
 - O(1) deletion
 - LRU eviction
 
-Entries can also expire based on TTL.
+Entries can also expire using TTL.
 
 ### L2: Redis
 
-Redis acts as the second cache layer.
+Redis is used as the second cache layer.
 
-When an L1 lookup misses:
+When L1 misses, GateCache checks Redis. If Redis has the value, the response is placed back into L1.
 
-```text
-L1 MISS
-   |
-   v
-Redis HIT
-   |
-   v
-Store in L1
-   |
-   v
-Return response
-```
+This means frequently used data stays close to the application while Redis can keep cached data available even after the GateCache process is restarted.
 
-This keeps frequently accessed data close to the application while still allowing cached data to survive a GateCache process restart.
+## Routing and load balancing
 
-## Load Balancing
-
-Backend targets are stored as route configuration in MongoDB.
+Routes are stored in MongoDB. Each route contains a path prefix and a list of backend targets.
 
 For example:
 
 ```text
 /users
-  ├── backend-1:4001
-  ├── backend-2:4002
-  └── backend-3:4003
+
+backend-1:4001
+backend-2:4002
+backend-3:4003
 ```
 
 GateCache uses round-robin selection across healthy targets.
 
-Example:
+A simple sequence looks like this:
 
 ```text
-/users/101 → 4001
-/users/102 → 4002
-/users/103 → 4003
-/users/104 → 4001
+/users/101    4001
+/users/102    4002
+/users/103    4003
+/users/104    4001
 ```
 
-Health checks periodically verify backend availability. Unhealthy targets are removed from rotation and can be added back when they become healthy again.
+Health checks periodically test the backend instances. A failed target is removed from the load-balancing rotation and can be added back when it becomes healthy again.
 
-## Rate Limiting
+## Rate limiting
 
-GateCache supports multiple rate-limiting strategies:
+The project contains implementations for:
 
 - Fixed Window
 - Sliding Window
 - Token Bucket
 
-The current Docker configuration uses the Token Bucket strategy.
+The Docker setup currently uses Token Bucket.
 
-The limiter tracks tokens for each client and refills them over time. Requests are rejected with HTTP `429` when no token is available.
+The limiter keeps track of tokens for each client and gradually refills them. When no token is available, the request receives HTTP `429`.
 
-Response headers include:
+Rate-limit information is also returned through:
 
 ```text
 X-RateLimit-Limit
@@ -176,36 +135,22 @@ X-RateLimit-Remaining
 X-RateLimit-Reset
 ```
 
-## Gateway Resilience
+## Backend failure handling
 
-The gateway includes:
+GateCache has a few basic resilience mechanisms:
 
 - Request timeouts
 - Retry attempts
 - Backend health checks
-- Automatic removal of failed targets from load balancing
+- Removal of failed targets from load balancing
 
-The current retry flow is:
+For example, if a request fails on one backend, that target is marked unhealthy and the retry can use another healthy backend.
 
-```text
-Request
-   |
-Backend A
-   |
-Failure
-   |
-Mark A unhealthy
-   |
-Retry
-   |
-Backend B
-```
+Circuit breaker functionality was considered but is not part of the current implementation. It would be a possible next step for the project.
 
-Circuit breaker functionality was considered but intentionally left outside the current implementation. It can be added later as another resilience layer.
+## Metrics and logging
 
-## Metrics
-
-The gateway tracks:
+The gateway keeps track of:
 
 - Total requests
 - Backend requests
@@ -218,15 +163,17 @@ The gateway tracks:
 - Cache evictions
 - Cache hit ratio
 
-Useful endpoints include:
+Useful endpoints:
 
 ```text
+GET /health
 GET /metrics
 GET /cache/stats
-GET /health
 ```
 
-## Project Structure
+Pino and Pino HTTP are used for structured request and backend logging.
+
+## Project structure
 
 ```text
 gatecache/
@@ -258,16 +205,16 @@ gatecache/
     └── unit/
 ```
 
-## Running the Project
+## Running the project
 
-### Prerequisites
+### Requirements
 
 - Docker Desktop
 - Git
 
-No local MongoDB or Redis installation is required.
+MongoDB and Redis do not need to be installed locally. Docker Compose handles them.
 
-### Start the complete system
+### Start everything
 
 ```bash
 git clone <repository-url>
@@ -275,9 +222,16 @@ cd gatecache
 docker compose up --build
 ```
 
-Docker Compose starts GateCache, MongoDB, Redis, and three mock backend instances. MongoDB route configuration is seeded automatically during startup.
+The Compose setup starts:
 
-### Verify the gateway
+- GateCache
+- MongoDB
+- Redis
+- Three mock backend servers
+
+The MongoDB route configuration is seeded automatically during startup.
+
+### Check the gateway
 
 In another terminal:
 
@@ -285,7 +239,7 @@ In another terminal:
 curl http://localhost:3000/health
 ```
 
-Expected:
+Expected response:
 
 ```json
 {
@@ -294,7 +248,7 @@ Expected:
 }
 ```
 
-Test a gateway request:
+Try a gateway request:
 
 ```bash
 curl http://localhost:3000/gateway/users/101
@@ -310,7 +264,9 @@ Example response:
 }
 ```
 
-## Testing Load Balancing
+## Testing load balancing
+
+Run these requests:
 
 ```bash
 curl http://localhost:3000/gateway/users/101
@@ -319,38 +275,36 @@ curl http://localhost:3000/gateway/users/103
 curl http://localhost:3000/gateway/users/104
 ```
 
-The backend responses demonstrate the round-robin behavior across the three mock servers.
+The responses show the requests being distributed across the three mock backend servers.
 
-## Testing Cache Behavior
+## Testing the cache
 
-Send the same GET request multiple times:
+Send the same request twice:
 
 ```bash
 curl http://localhost:3000/gateway/users/200
 curl http://localhost:3000/gateway/users/200
 ```
 
-Then inspect:
+Then check the cache statistics:
 
 ```bash
 curl http://localhost:3000/cache/stats
 ```
 
-The repeated request should be served from cache.
+The second request can be served from the cache instead of reaching the backend.
 
-The cache hierarchy is:
+The cache lookup order is:
 
 ```text
-L1 Cache
-   ↓ MISS
+L1 cache
 Redis
-   ↓ MISS
 Backend
 ```
 
-A GateCache restart clears the process-local L1 cache while Redis can retain the cached response. This can be used to demonstrate L2-to-L1 promotion.
+Restarting GateCache clears its process-local L1 cache, while Redis can retain the cached response. This can be used to demonstrate Redis-to-L1 cache promotion.
 
-## Running Tests
+## Running tests
 
 ```bash
 npm install
@@ -359,32 +313,33 @@ npm test
 
 The project uses Vitest for unit and integration testing.
 
-## Load Testing
+## Load testing
+
+The project includes an Autocannon script:
 
 ```bash
 npm run load-test
 ```
 
-The load test uses Autocannon to measure gateway throughput and latency under concurrent requests.
+The current benchmark uses a hot L1 cache workload with 100 concurrent connections for 30 seconds.
 
-Example metrics include:
+One verified run produced:
 
 ```text
-Requests/sec
-Average latency
-p50
-p90
-p97.5
-p99
-p99.9
-Errors
-Timeouts
-Non-2xx responses
+Requests:     248,214
+Throughput:   8,274.4 req/sec
+Average:      11.59 ms
+P99:          23 ms
+Errors:       0
+Timeouts:     0
+Non-2xx:      0
 ```
+
+This is a hot-cache benchmark, so the numbers should be interpreted as L1 cache performance rather than a general measure of backend throughput.
 
 ## Configuration
 
-The main configuration values include:
+The main configuration values are:
 
 ```text
 PORT
@@ -398,17 +353,17 @@ RATE_LIMIT_MAX_REQUESTS
 RATE_LIMIT_STRATEGY
 ```
 
-Docker Compose provides the required values for the complete local environment.
+Docker Compose supplies the values needed for the complete local environment.
 
-## Technology Stack
+## Technology
 
 ### Backend
 
 - Node.js
 - Express.js
-- JavaScript (ES Modules)
+- JavaScript with ES Modules
 
-### Data and caching
+### Database and caching
 
 - MongoDB
 - Redis
@@ -424,26 +379,27 @@ Docker Compose provides the required values for the complete local environment.
 - Docker
 - Docker Compose
 
-### Observability
+### Logging and metrics
 
 - Pino
 - Pino HTTP
 - Custom metrics
 
-## What I Focused On
+## What I learned from the project
 
-The main goal of this project was to understand how common backend infrastructure components work together.
+The main reason I built GateCache was to understand how backend infrastructure pieces fit together in an actual application.
 
-Some of the main implementation areas were:
+Some of the areas I worked on were:
 
-- Designing an O(1) LRU cache using a hash map and doubly linked list
-- Building a two-level cache with Redis as L2
-- Handling cache promotion from Redis to memory
-- Implementing multiple rate-limiting algorithms
+- Implementing an O(1) LRU cache with a hash map and doubly linked list
+- Designing a two-level cache using Redis as L2
+- Promoting cached responses from Redis back into memory
+- Implementing different rate-limiting strategies
 - Routing requests across multiple backend instances
 - Detecting unhealthy backend targets
-- Adding retry and timeout handling
-- Tracking backend and cache metrics
-- Containerizing the complete system for reproducible testing
+- Handling retries and request timeouts
+- Tracking cache and backend metrics
+- Running the whole system through Docker Compose
+- Testing the system with automated tests and HTTP load tests
 
-The project is intentionally backend-focused and does not require a frontend application. All functionality can be tested through HTTP APIs, automated tests, Docker Compose, and load tests.
+GateCache is intentionally backend-focused. There is no frontend application because the main goal was to work on the gateway, caching, networking, and infrastructure side of the system.
