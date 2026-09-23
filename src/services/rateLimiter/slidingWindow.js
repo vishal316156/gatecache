@@ -20,7 +20,6 @@ export class SlidingWindowRateLimiter {
 
     const cutoff = now - this.windowMs;
 
-    // Remove timestamps outside the sliding window
     while (timestamps.length > 0 && timestamps[0] <= cutoff) {
       timestamps.shift();
     }

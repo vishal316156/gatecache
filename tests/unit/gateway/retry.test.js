@@ -128,7 +128,6 @@ describe("retryRequest", () => {
       })
     ).rejects.toThrow("failed");
 
-    // 1 initial attempt + 2 retries
     expect(request).toHaveBeenCalledTimes(3);
 
     expect(loadBalancer.next)

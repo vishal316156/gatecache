@@ -55,8 +55,7 @@ describe("SlidingWindowRateLimiter", () => {
 
     expect(limiter.check("client-1").allowed).toBe(false);
 
-    // First request was at 0ms.
-    // Move beyond 60 seconds from it.
+
     vi.advanceTimersByTime(41000);
 
     expect(limiter.check("client-1").allowed).toBe(true);
@@ -70,7 +69,7 @@ describe("SlidingWindowRateLimiter", () => {
     expect(limiter.check("client-1").allowed).toBe(false);
     expect(limiter.check("client-1").allowed).toBe(false);
 
-    // After 60 seconds, the original requests expire.
+
     vi.advanceTimersByTime(60000);
 
     expect(limiter.check("client-1").allowed).toBe(true);

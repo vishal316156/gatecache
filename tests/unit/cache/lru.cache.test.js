@@ -33,10 +33,8 @@ describe("LRU Cache", () => {
     cache.set("B", 2);
     cache.set("C", 3);
 
-    // A becomes most recently used
     cache.get("A");
 
-    // B should now be least recently used
     cache.set("D", 4);
 
     expect(cache.get("B")).toBeNull();

@@ -10,14 +10,14 @@ import metricsRoutes from "./routes/metrics.routes.js";
 
 const app = express();
 
-// Middleware
+
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 app.use(metricsMiddleware);
 app.use("/metrics", metricsRoutes);
 
 
-// Routes
+
 app.use("/health", healthRoutes);
 app.use("/cache", cacheRoutes);
 app.use("/gateway", gatewayRoutes);

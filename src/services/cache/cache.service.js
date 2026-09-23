@@ -21,7 +21,6 @@ export class CacheService {
   }
 
   async get(key) {
-    // L1
     const l1Value = this.l1.get(key);
 
     if (l1Value !== null) {
@@ -29,13 +28,11 @@ export class CacheService {
       return l1Value;
     }
 
-    // L2
     const l2Value = await this.l2.get(key);
 
     if (l2Value !== null) {
       this.stats.hits++;
 
-      // Promote L2 → L1
       this.l1.set(key, l2Value, this.defaultTTL);
 
       return l2Value;

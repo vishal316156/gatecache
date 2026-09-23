@@ -1,11 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import {describe,it,expect,beforeEach,afterEach,vi} from "vitest";
 
 import { TokenBucketRateLimiter } from "../../../src/services/rateLimiter/tokenBucket.js";
 

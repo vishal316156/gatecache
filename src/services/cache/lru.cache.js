@@ -42,7 +42,6 @@ export class LRUCache {
     return null;
   }
 
-  // Check expiration
   if (node.expiresAt && Date.now() >= node.expiresAt) {
     this._removeNode(node);
     this.cache.delete(key);
@@ -50,7 +49,6 @@ export class LRUCache {
     return null;
   }
 
-  // Mark as recently used
   this._removeNode(node);
   this._addToFront(node);
 
@@ -58,7 +56,6 @@ export class LRUCache {
 }
 
  set(key, value, ttl = null) {
-  // Case 1: key already exists
   if (this.cache.has(key)) {
   const node = this.cache.get(key);
 
@@ -71,13 +68,11 @@ export class LRUCache {
   return;
 }
 
-  // Case 2: new key
 const node = new Node(key, value, ttl);
 
   this.cache.set(key, node);
   this._addToFront(node);
 
-  // Cache exceeded capacity
   if (this.cache.size > this.capacity) {
   const leastRecentlyUsed = this.tail.prev;
 
@@ -92,7 +87,6 @@ return false;
   delete(key) {
   const node = this.cache.get(key);
 
-  // Key doesn't exist
   if (!node) {
     return false;
   }

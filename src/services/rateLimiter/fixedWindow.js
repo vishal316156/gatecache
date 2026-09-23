@@ -35,6 +35,3 @@ export class FixedWindowRateLimiter {constructor({
     };
   }
 }
-
-// it counts if req within fixed window is greater than the current permisible or not
-// returns how many requests sent and how much time left to reset
